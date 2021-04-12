@@ -59,6 +59,7 @@ type RecInfo struct {
 
 type RecMask struct {
 	users int
+	prio  int
 	mask  RecorderMask
 }
 
@@ -104,6 +105,23 @@ func convertTupleToMask(t RecorderTuple) RecorderMask {
 	copy(m.srcMask, t.srcPrefix.Mask)
 	copy(m.dstMask, t.dstPrefix.Mask)
 	return m
+}
+
+func countMaskOnes(m RecorderMask) int {
+	ones := 0
+	onesSrc, _ := m.srcMask.Size()
+	onesDst, _ := m.dstMask.Size()
+	ones += onesSrc + onesDst
+	if m.srcPort == 0xffff {
+		ones += 16
+	}
+	if m.dstPort == 0xffff {
+		ones += 16
+	}
+	if m.proto == 0xff {
+		ones += 8
+	}
+	return ones
 }
 
 func hashMask(x *RecorderMask) string {
@@ -214,9 +232,11 @@ func (r *Recorder) createRecInfoLocked(ri *RecInfo, withID bool) bool {
 		if rm, found := r.recMask[maskHash]; found {
 			rm.users++
 		} else {
+			ones := countMaskOnes(mask)
 			rm := &RecMask{
 				users: 1,
 				mask:  mask,
+				prio:  ones,
 			}
 			r.recMask[maskHash] = rm
 			triggerRegen = true
@@ -315,6 +335,7 @@ func deepCopyMask(m net.IPMask) net.IPMask {
 func deepCopyRecMask(recMask *RecMask) *RecMask {
 	rm := &RecMask{
 		users: recMask.users,
+		prio:  recMask.prio,
 		mask: RecorderMask{
 			srcPort: recMask.mask.srcPort,
 			dstPort: recMask.mask.dstPort,
@@ -419,7 +440,8 @@ func RecorderToModel(ri *RecInfo) (*models.RecorderSpec, error) {
 
 func RecorderMaskToModel(rm *RecMask) *models.RecorderMaskSpec {
 	mo := &models.RecorderMaskSpec{
-		Users: int64(rm.users),
+		Users:    int64(rm.users),
+		Priority: int64(rm.prio),
 	}
 	mo.DstPrefixMask = rm.mask.dstMask.String()
 	mo.SrcPrefixMask = rm.mask.srcMask.String()
