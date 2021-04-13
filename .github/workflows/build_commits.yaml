@@ -1,6 +1,5 @@
 name: build_commits
 
-
 on: [pull_request]
 
 jobs:
@@ -9,34 +8,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install Go
-        uses: actions/setup-go@v2.1.3
+        uses: actions/setup-go@37335c7bb261b353407cff977110895fa0b4f7d8
         with:
           go-version: 1.16.3
+          
       - name: Cache LLVM and Clang
         id: cache-llvm
         uses: actions/cache@v2.1.4
         with:
           path: $HOME/.clang
           key: llvm-10.0
+          
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v1.2.1
         with:
           version: "10.0"
           directory: $HOME/.clang
-          cached: ${{ steps.cache-llvm.outputs.cache-hit }}    
+          cached: ${{ steps.cache-llvm.outputs.cache-hit }}
+          
       - name: Install libelf
         run: |
           sudo apt-get install libelf-dev
+          
       - name: Checkout code
         uses: actions/checkout@v2
         with:
           fetch-depth: 0
-      - name: git fetch commit code
+          
+      - name: Check if build works for every commi
         run: |
-          git fetch origin pull/$PR/head:rebase-head
-          git checkout rebase-head
-        env:
-          PR: ${{ github.event.pull_request.number }}  
-      - name: build commits
-        run: git rebase --exec "make clean && make -j $(nproc) && make -C bpf build_all -j $(nproc)" rebase-head
-
+          PR_COMMITS_API_JSON=$(curl \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            ${{ github.event.pull_request.commits_url }})
+          PR_FIRST_SHA=$(echo "$PR_COMMITS_API_JSON" | jq -r ".[0].sha")
+          PR_PARENT_SHA=$(git rev-parse "${PR_FIRST_SHA}^")
+          git rebase --exec "make clean && make -j $(nproc) && make -C bpf build_all -j $(nproc)" $PR_PARENT_SHA
+        
+      - name: Information about failed commit
+        if: ${{ failure() }}
+        run: git --no-pager log --format=%B -n 1
